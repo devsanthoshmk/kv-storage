@@ -1,101 +1,154 @@
-# KV Worker API
+# Cloudflare Workers KV storage API for serverless KV and edge key value store
 
-A simple Cloudflare Worker API to store and retrieve key-value pairs using KV storage.  
-Supports **only GET and POST methods**. Ideal for small, permanent storage like a single link.
+This project provides an edge key value store that processes reads and writes through a serverless KV interface.
 
-**Base URL:**  
-https://techx.connectwithsanthoshmk.workers.dev/
+The Cloudflare Workers KV storage API runs on the Cloudflare global network to execute key-value operations with low latency. It functions as a serverless KV system where clients store and read strings by key. This edge key value store exposes HTTP endpoints for web browsers and backend clients.
 
----
+## Architecture
 
-## API Methods
+The project contains a TypeScript application designed for the Cloudflare Workers runtime. Incoming HTTP requests enter the `fetch` handler in `src/index.ts`. The worker parses URL query parameters, routes commands to the KV namespace, and sends structured HTTP responses.
 
-### 1. POST – Store/Edit a Value
+- The worker runtime runs on Cloudflare Workers using compatibility date `2025-03-27`.
+- The storage layer binds the `USER_NOTIFICATION` KV namespace directly to the worker execution environment.
+- The CORS handler applies `Access-Control-Allow-Origin: *` to responses and returns HTTP 204 for `OPTIONS` preflight requests.
+- The error boundary catches unhandled exceptions and outputs HTTP 500 plain text responses.
 
-Stores a value for a given key in KV storage.
+## Setup
 
-**Request URL:**  
-```
-POST https://techx.connectwithsanthoshmk.workers.dev/?key=<KEY>&value=<VALUE>
-```
+### Prerequisites
 
-**Query Parameters:**
+Install Node.js 18 or later and npm. You also need a Cloudflare account with Wrangler authenticated.
 
-| Parameter | Type   | Description                  | Required |
-|-----------|--------|------------------------------|----------|
-| key       | string | The key to store the value under | Yes      |
-| value     | string | The value to store           | Yes      |
+### Installation
 
-**Response:**  
-```
-Stored: <KEY> = <VALUE>
+Clone the repository and install dependencies:
+
+```bash
+git clone https://github.com/devsanthoshmk/kv-storage.git
+cd kv-storage
+npm install
 ```
 
-**Example using curl:**
+### Development commands
+
+- `npm run dev` starts the local development server with Wrangler.
+- `npm test` runs the test suite with Vitest.
+- `npm run cf-typegen` generates TypeScript types from `wrangler.jsonc`.
+- `npm run deploy` publishes the worker to Cloudflare Workers.
+
+## Usage
+
+The default production base URL is:
+
+```text
+https://techx.connectwithsanthoshmk.workers.dev
+```
+
+### Store or update a key
+
+Send a `POST` request with `key` and `value` query parameters to write data.
+
+Endpoint:
+
+```text
+POST /?key=<KEY>&value=<VALUE>
+```
+
+Query parameters:
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `key` | string | Yes | The key to store the value under. |
+| `value` | string | Yes | The string value to store. |
+
+Example curl request:
+
 ```bash
 curl -X POST "https://techx.connectwithsanthoshmk.workers.dev/?key=user_2&value=enabled"
 ```
 
-**Response:**
-```
+Response:
+
+```text
 Stored: user_2 = enabled
 ```
 
----
+### Retrieve a key
 
-### 2. GET – Retrieve a Value
+Send a `GET` request with a `key` query parameter to read data.
 
-Retrieves the value for a given key from KV storage.
+Endpoint:
 
-**Request URL:**  
+```text
+GET /?key=<KEY>
 ```
-GET https://techx.connectwithsanthoshmk.workers.dev/?key=<KEY>
-```
 
-**Query Parameters:**
+Query parameters:
 
-| Parameter | Type   | Description          | Required |
-|-----------|--------|--------------------|----------|
-| key       | string | The key to retrieve | Yes      |
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `key` | string | Yes | The key to retrieve from storage. |
 
-**Response:**
+Example curl request:
 
-- Returns the stored value as plain text.  
-- If the key is not found, returns `404` with `"Value not found"`.
-
-**Example using curl:**
 ```bash
 curl "https://techx.connectwithsanthoshmk.workers.dev/?key=user_2"
 ```
 
-**Response:**
-```
+Response:
+
+```text
 enabled
 ```
 
----
+### Preflight requests
 
-## Error Handling
+The worker accepts `OPTIONS` requests for browser cross-origin preflight checks.
 
-| Status Code | Description                                         |
-|-------------|-----------------------------------------------------|
-| 400         | Missing `?key` parameter, or missing `?value` for POST |
-| 404         | Key not found in KV storage                         |
-| 405         | Method not allowed (any method other than GET/POST)|
-| 500         | Internal server error / KV access error            |
+Response status:
 
----
+```text
+204 No Content
+```
 
-## Notes
+Response headers:
 
-- Only supports **GET** and **POST** methods.  
-- Ensure your KV namespace is properly bound in the Worker.  
-- Safe for storing **small amounts of permanent data**.
+```text
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET, POST, OPTIONS
+Access-Control-Allow-Headers: Content-Type
+```
 
----
+### HTTP status codes
 
-## Example Use Cases
+| Status code | Condition |
+|---|---|
+| 200 | The request succeeded. Returns the stored text or confirmation string. |
+| 204 | The preflight `OPTIONS` request succeeded. |
+| 400 | The query omitted `key`, or a `POST` request omitted `value`. |
+| 404 | The requested key does not exist in KV storage. |
+| 405 | The client sent an HTTP method other than `GET`, `POST`, or `OPTIONS`. |
+| 500 | The worker caught an unexpected error during KV access. |
 
-- Store a permanent link or short URL.  
-- Save simple user settings or flags.  
-- Lightweight key-value API for front-end apps.
+## Configuration
+
+The file `wrangler.jsonc` configures the worker execution environment and KV bindings.
+
+| Configuration field | Value | Purpose |
+|---|---|---|
+| `name` | `techx` | Defines the worker project name. |
+| `main` | `src/index.ts` | Identifies the primary worker entry point. |
+| `compatibility_date` | `2025-03-27` | Fixes the Cloudflare Workers runtime compatibility baseline. |
+| `observability.enabled` | `true` | Activates Cloudflare runtime logging and metrics. |
+| `kv_namespaces[0].binding` | `USER_NOTIFICATION` | Binds the storage namespace to `env.USER_NOTIFICATION` in code. |
+| `kv_namespaces[0].id` | `f556542a8c0c405a95821e8161ec13ed` | Points to the target Cloudflare KV namespace identifier. |
+
+### Custom namespace binding
+
+To link your own KV namespace, run:
+
+```bash
+npx wrangler kv namespace create USER_NOTIFICATION
+```
+
+Copy the generated namespace ID into `wrangler.jsonc` under `kv_namespaces[0].id`.
